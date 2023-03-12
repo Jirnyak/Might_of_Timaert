@@ -46,6 +46,17 @@ game:
 
 x86_64-w64-mingw32-objdump -p dukalop_win.exe | grep 'DLL Name:' | sed -e "s/\t*DLL Name: //g"
 
+lldb ./strategy
+
+lldb
+
+file strategy
+
+run
+
+(opt: breakpoint set --file strategy.cpp --line N)
+
+
 */
 
 using rng_t = std::mt19937;
@@ -128,7 +139,7 @@ class object
 
         short int type;
 
-        short int ready;
+        short int ally;
 
         object(int x, int y, enum type typ) 
         { 
@@ -144,8 +155,6 @@ class object
             this->dead = false;
 
             this->aim = -1;
-
-            this->ready = randomer(rng, 1000);
 
             switch(typ)
             {
@@ -180,6 +189,7 @@ class object
                     this->speed = 0.1;
                     break;
             }
+
         }
             int cell_number()
             {
@@ -191,11 +201,12 @@ class projectile: public object
 {
 public:
     tuple <double, double> velocity;
-        projectile(int x, int y, enum type typ,tuple <double, double> velocity):object(x,y,typ)
+        projectile(int x, int y, enum type typ,tuple <double, double> velocity, short int ally):object(x,y,typ)
         {
             this->velocity = velocity;
             this->v_x = get<0>(velocity);
             this->v_y = get<1>(velocity);
+            this->ally = ally;
         }
 };
 
@@ -206,7 +217,7 @@ class cell
         int y;   
         int number;
         cell *address;
-    public:      
+    public:     
         cell *sosed_up;   
         cell *sosed_left; 
         cell *sosed_down; 
@@ -313,11 +324,11 @@ class cell
         {
             sosed_downleft = c;
         }
-        int get_n()
+        int get_n() const
         {
             return number;
         }
-        cell* side(int d)
+        cell* side(int d) 
         {
             if (d == 0)
                 return sosed_up;
@@ -338,7 +349,7 @@ class cell
             else
                 return address;
         }
-        cell* side_spiral(int d)
+        cell* side_spiral(int d) const
         {
             if (d == 0)
                 return sosed_up;
@@ -379,18 +390,47 @@ int tile_spiral(int d)
             else
                 return 0;
 }
-
-int spiral_aim(vector<cell> world, int size, int start, int goal)
+/*
+int spiral_aim(const vector<cell>& world, int size, int start, int target) 
 {
-    cell* pos = &world[start];
-    vector<object>::iterator it_obj;
+    int x = start % size;
+    int y = start / size;
+    int dx[] = {1, 0, -1, 0};
+    int dy[] = {0, 1, 0, -1};
+    int d = 0;
+    int i = 0;
+    int r = 1;
+    for (i = 0; i < size * size; i++) 
+    {
+        if (!world[y * size + x].inside.empty() && world[y * size + x].inside[0].type == target)
+        {
+            return y * size + x;
+        }
+        x += dx[d];
+        y += dy[d];
+        if (x < r || x >= size - r || y < r || y >= size - r) 
+        {
+            d = (d + 1) % 4;
+            if (y >= r && y < size - r)
+            {
+                r++;
+            }
+        }
+    }
+    return -1;
+}
+*/
+
+
+int spiral_aim(const vector<cell>& world, int size, int start, int goal) 
+{
+    const cell* pos = &world[start];
     bool stop = 0;
     int use = 0;
     int k = 0;
     int aim = -1;
     for (int i = 0; i < size; i++)
     {
-        #pragma omp parallel for
         for (int a = 0; a < use; a++)   
         {
             pos = pos->side_spiral(k%4);
@@ -406,7 +446,6 @@ int spiral_aim(vector<cell> world, int size, int start, int goal)
         if (stop == true)
             break;        
         k += 1;
-        #pragma omp parallel for
         for (int b = 0; b < use; b++)   
         {
             pos = pos->side_spiral(k%4);
@@ -426,6 +465,7 @@ int spiral_aim(vector<cell> world, int size, int start, int goal)
     }
     return aim;
 }
+
 
 tuple<double,double> beam(int x1, int y1, int x2, int y2, double c)
 {
@@ -466,37 +506,35 @@ tuple<double,double> beam(int x1, int y1, int x2, int y2, double c)
 vector<cell> read_map(string map, vector<cell> world)
 {
     string line;
-    ifstream file;
-    file.open(map);
-    if (file.is_open())
-    {
-        int world_n  = 0;
-        int RGB_n = 0;
-        while (getline(file, line))
-        {    
-            switch(RGB_n)
-            {   
-                case 0: 
-                    world[world_n].R = stoi(line);
-                    RGB_n += 1;
-                    break;
-                case 1: 
-                    world[world_n].G = stoi(line);
-                    RGB_n += 1;
-                    break;
-                case 2: 
-                    world[world_n].B = stoi(line);
-                    RGB_n = 0;
-                    world_n += 1;
-                    break;
-            } 
-        }
-        file.close();
-        return world;
+    ifstream file(map);
+    if (!file.is_open()) {
+        cout << "Error: could not open file " << map << endl;
+        exit(1);
     }
-    else 
-        cout << "NO MAP";
-        exit(0);
+
+    int world_n = 0, RGB_n = 0;
+    while (getline(file, line))
+    {
+        switch (RGB_n)
+        {
+        case 0:
+            world[world_n].R = stoi(line);
+            RGB_n++;
+            break;
+        case 1:
+            world[world_n].G = stoi(line);
+            RGB_n++;
+            break;
+        case 2:
+            world[world_n].B = stoi(line);
+            RGB_n = 0;
+            world_n++;
+            break;
+        }
+    }
+
+    file.close();
+    return world;
 }
 
 int main(int argc, char **argv)
@@ -549,12 +587,11 @@ int main(int argc, char **argv)
     int drop;
     int zapas = 0;
 
-    world = read_map("politik.txt", world);
-
     int krigan_score = 0;
     int erafia_score = 0;
 
-    #pragma omp parallel for
+    world = read_map("politik.txt", world);
+
     for (it = world.begin(); it != world.end(); ++it)
     {
         if (it->R > it->G)
@@ -586,7 +623,6 @@ int main(int argc, char **argv)
 
     world = read_map("enrot.txt", world);
 
-    #pragma omp parallel for
     for (it = world.begin(); it != world.end(); ++it)
     {
         if (it->B > 90 and it->R < 50 and it->G < 100)
@@ -619,10 +655,10 @@ int main(int argc, char **argv)
             }
     } 
 
-    #pragma omp parallel for
+
     for (it = world.begin(); it != world.end(); ++it)
     {
-        if (it->terra == 1)
+        if (it->water != 1)
         {
             for (int i = 0; i < 8; i++) 
             {
@@ -634,6 +670,10 @@ int main(int argc, char **argv)
             }
         }
     }
+
+    /*
+    exit(0);
+    */
 
     perbor = 0;
     gena = 0;
@@ -651,7 +691,7 @@ int main(int argc, char **argv)
 
     gena = 0;
 
-    while (gena < krigan_score/1000)
+    while (gena < krigan_score/100)
     {
         drop  = randomer(rng, WORLD_WIDTH*WORLD_WIDTH);
         if (world[drop].inside.empty() and world[drop].water == 0 and world[drop].control == krigan)
@@ -663,7 +703,7 @@ int main(int argc, char **argv)
 
     gena = 0;
 
-    while (gena < erafia_score/1000)
+    while (gena < erafia_score/100)
     {
         drop  = randomer(rng, WORLD_WIDTH*WORLD_WIDTH);
         if (world[drop].inside.empty() and world[drop].water == 0 and world[drop].control == erafia)
@@ -701,6 +741,7 @@ int main(int argc, char **argv)
     world[player_n].inside.push_back(object(world[player_n].get_x(),world[player_n].get_y(), player));
 
     SDL_Event event;
+
     SDL_Window *window;
     SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
 
@@ -912,7 +953,7 @@ int main(int argc, char **argv)
                                     aim_x = it_inside->x + (light_x-WINDOW_WIDTH/2)/TILE_SIZE;
                                     aim_y = tor_cord(aim_y);
                                     aim_x = tor_cord(aim_x);
-                                    objects_buff.push_back(projectile(it_inside->x, it_inside->y,bullet,beam(WINDOW_WIDTH/2.0, WINDOW_HEIGHT/2.0, light_x/1.0, light_y/1.0, 1)));
+                                    objects_buff.push_back(projectile(it_inside->x, it_inside->y,bullet,beam(WINDOW_WIDTH/2.0, WINDOW_HEIGHT/2.0, light_x/1.0, light_y/1.0, 1), mob));
                                     break;
                                 }
                             }
@@ -1016,7 +1057,7 @@ int main(int argc, char **argv)
                 {
                     if (it->fire == 1)
                     {
-                        #pragma omp parallel for
+                        //#pragma omp parallel for
                         for (it_inside = it->inside.begin(); it_inside != it->inside.end(); ++it_inside)
                         {
                             it_inside->dead = 1;
@@ -1033,18 +1074,15 @@ int main(int argc, char **argv)
                         {
                             switch (it_inside->type)
                             {
-                                case mob:
-                                    it->control = krigan;
-                                    it_inside->ready += 1;
-                                    if (it_inside->aim == -1 and it_inside->ready > 1000)
+                                case mob:                        
+                                    if (it_inside->aim == -1)
                                     {
                                         it_inside->aim = spiral_aim(world, 10, it_inside->cell_number(), knight);
-                                        it_inside->ready = 0;
                                     }
                                     else if (it_inside->aim != -1)
                                     {
-                                        it_inside->v_x = world[it_inside->aim].get_x() - it_inside->x/abs(world[it_inside->aim].get_x() - it_inside->x)*it_inside->speed;
-                                        it_inside->v_y = world[it_inside->aim].get_y() - it_inside->y/abs(world[it_inside->aim].get_y() - it_inside->y)*it_inside->speed;
+                                        objects_buff.push_back(projectile(it_inside->x, it_inside->y,bullet,beam(it_inside->x, it_inside->y, world[it_inside->aim].get_x(), world[it_inside->aim].get_y(), 1), knight));
+                                        it_inside->aim = -1;
                                     }
                                     if (it_inside->aim == -1)
                                     {
@@ -1055,55 +1093,22 @@ int main(int argc, char **argv)
                                             it_inside->v_x += it_inside->speed*randomer(rng,10)/100;
                                             it_inside->v_x -= it_inside->speed*randomer(rng,10)/100;
                                             it_inside->v_y += it_inside->speed*randomer(rng,10)/100;
-                                            it_inside->v_y -= it_inside->speed*randomer(rng,5)/100;
+                                            it_inside->v_y -= it_inside->speed*randomer(rng,10)/100;
+                                        }
+                                        else if (it->control != krigan)
+                                        {
+                                            it_inside->v_x += it_inside->v_x;
+                                            it_inside->v_y += it_inside->v_y;
+                                            it_inside->v_x += it_inside->speed*randomer(rng,10)/10;
+                                            it_inside->v_x -= it_inside->speed*randomer(rng,10)/10;
+                                            it_inside->v_y += it_inside->speed*randomer(rng,10)/10;
+                                            it_inside->v_y -= it_inside->speed*randomer(rng,10)/10;
                                         }
                                         else
                                         {
                                             it_inside->v_x += it_inside->speed*randomer(rng,10)/10;
                                             it_inside->v_x -= it_inside->speed*randomer(rng,10)/10;
                                             it_inside->v_y += it_inside->speed*randomer(rng,10)/10;
-                                            it_inside->v_y -= it_inside->speed*randomer(rng,5)/10;
-                                        }
-                                    }
-                                    if (abs(it_inside->v_x) > abs(it_inside->speed))
-                                        it_inside->v_x = it_inside->v_x/abs(it_inside->v_x)*it_inside->speed;
-                                    if (abs(it_inside->v_y) > abs(it_inside->speed))
-                                        it_inside->v_y = it_inside->v_y/abs(it_inside->v_y)*it_inside->speed;
-                                    it_inside->x_loc += it_inside->v_x;
-                                    it_inside->y_loc += it_inside->v_y;
-                                    it_inside->x = it_inside->x_loc;
-                                    it_inside->y = it_inside->y_loc;
-                                    break;
-
-                                case knight:
-                                    it->control = erafia;
-                                    it_inside->ready += 1;
-                                    if (it_inside->aim == -1 and it_inside->ready > 1000)
-                                    {
-                                        it_inside->aim = spiral_aim(world, 10, it_inside->cell_number(), mob);
-                                        it_inside->ready = 0;
-                                    }
-                                    else if (it_inside->aim != -1)
-                                    {
-                                        it_inside->v_x = world[it_inside->aim].get_x() - it_inside->x/abs(world[it_inside->aim].get_x() - it_inside->x)*it_inside->speed;
-                                        it_inside->v_y = world[it_inside->aim].get_y() - it_inside->y/abs(world[it_inside->aim].get_y() - it_inside->y)*it_inside->speed;
-                                    }
-                                    if (it_inside->aim == -1)
-                                    {
-                                        if (it->water == 1)
-                                        {
-                                            it_inside->v_x = 0;
-                                            it_inside->v_y = 0;
-                                            it_inside->v_x += it_inside->speed*randomer(rng,10)/100;
-                                            it_inside->v_x -= it_inside->speed*randomer(rng,10)/100;
-                                            it_inside->v_y += it_inside->speed*randomer(rng,5)/100;
-                                            it_inside->v_y -= it_inside->speed*randomer(rng,10)/100;
-                                        }
-                                        else
-                                        {
-                                            it_inside->v_x += it_inside->speed*randomer(rng,10)/10;
-                                            it_inside->v_x -= it_inside->speed*randomer(rng,10)/10;
-                                            it_inside->v_y += it_inside->speed*randomer(rng,5)/10;
                                             it_inside->v_y -= it_inside->speed*randomer(rng,10)/10;
                                         }
                                     }
@@ -1115,12 +1120,62 @@ int main(int argc, char **argv)
                                     it_inside->y_loc += it_inside->v_y;
                                     it_inside->x = it_inside->x_loc;
                                     it_inside->y = it_inside->y_loc;
+                                    it->control = krigan;
+                                    break;
+
+                                case knight:
+                                    if (it_inside->aim == -1)
+                                    {
+                                        it_inside->aim = spiral_aim(world, 10, it_inside->cell_number(), mob);
+                                    }
+                                    else if (it_inside->aim != -1)
+                                    {
+                                        objects_buff.push_back(projectile(it_inside->x, it_inside->y,bullet,beam(it_inside->x, it_inside->y, world[it_inside->aim].get_x(), world[it_inside->aim].get_y(), 1), mob));
+                                        it_inside->aim = -1;
+                                    }
+                                    if (it_inside->aim == -1)
+                                    {
+                                        if (it->water == 1)
+                                        {
+                                            it_inside->v_x = 0;
+                                            it_inside->v_y = 0;
+                                            it_inside->v_x += it_inside->speed*randomer(rng,10)/100;
+                                            it_inside->v_x -= it_inside->speed*randomer(rng,10)/100;
+                                            it_inside->v_y += it_inside->speed*randomer(rng,10)/100;
+                                            it_inside->v_y -= it_inside->speed*randomer(rng,10)/100;
+                                        }
+                                        else if (it->control != erafia)
+                                        {
+                                            it_inside->v_x += it_inside->v_x;
+                                            it_inside->v_y += it_inside->v_y;
+                                            it_inside->v_x += it_inside->speed*randomer(rng,10)/10;
+                                            it_inside->v_x -= it_inside->speed*randomer(rng,10)/10;
+                                            it_inside->v_y += it_inside->speed*randomer(rng,10)/10;
+                                            it_inside->v_y -= it_inside->speed*randomer(rng,10)/10;
+                                        }
+                                        else
+                                        {
+                                            it_inside->v_x += it_inside->speed*randomer(rng,10)/10;
+                                            it_inside->v_x -= it_inside->speed*randomer(rng,10)/10;
+                                            it_inside->v_y += it_inside->speed*randomer(rng,10)/10;
+                                            it_inside->v_y -= it_inside->speed*randomer(rng,10)/10;
+                                        }
+                                    }
+                                    if (abs(it_inside->v_x) > abs(it_inside->speed))
+                                        it_inside->v_x = it_inside->v_x/abs(it_inside->v_x)*it_inside->speed;
+                                    if (abs(it_inside->v_y) > abs(it_inside->speed))
+                                        it_inside->v_y = it_inside->v_y/abs(it_inside->v_y)*it_inside->speed;
+                                    it_inside->x_loc += it_inside->v_x;
+                                    it_inside->y_loc += it_inside->v_y;
+                                    it_inside->x = it_inside->x_loc;
+                                    it_inside->y = it_inside->y_loc;
+                                    it->control = erafia;
                                     break;
 
                                 case bullet:
                                     for (it_obj = it->inside.begin(); it_obj != it->inside.end(); ++it_obj)
                                     {
-                                        if (it_obj->type == mob)
+                                        if (it_obj->type == it_inside->ally)
                                         {
                                             it_obj->dead = true;
                                             it_inside->dead = true;
@@ -1142,6 +1197,8 @@ int main(int argc, char **argv)
             }
             
         //DRAW
+
+        
         if (!paused)
         {
             SDL_RenderCopy(renderer, panel_on_left, NULL, &left_panel);
@@ -1434,6 +1491,8 @@ int main(int argc, char **argv)
 
         SDL_RenderPresent(renderer);
 
+        
+
         //CLEANING AND REFILING BUFFERS
 
         for (it = world.begin(); it != world.end(); ++it)
@@ -1461,8 +1520,12 @@ int main(int argc, char **argv)
         objects_buff.clear();
     }
 
+    
+
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();
     return EXIT_SUCCESS;
+
+    
 }
