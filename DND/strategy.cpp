@@ -1,3 +1,5 @@
+#define SDL_MAIN_HANDLED
+
 #include <iostream>
 #include <fstream>
 #include <vector>
@@ -6,7 +8,6 @@
 #include <SDL_image.h>
 #include <SDL_ttf.h>
 #include <unistd.h>
-#include <chrono>
 #include <string>
 #include <tuple>
 #include <math.h>  
@@ -42,7 +43,67 @@ game:
     g++-12 strategy.cpp -o strategy -I /Library/Frameworks/SDL2.framework/Headers -F /Library/Frameworks -framework SDL2 -I /Library/Frameworks/SDL2_image.framework/Headers -F /Library/Frameworks -framework SDL2_image -I /Library/Frameworks/SDL2_ttf.framework/Headers -F /Library/Frameworks -framework SDL2_ttf -fopenmp -std=c++11 
 
 ./strategy
+
+x86_64-w64-mingw32-objdump -p dukalop_win.exe | grep 'DLL Name:' | sed -e "s/\t*DLL Name: //g"
+
 */
+
+using rng_t = std::mt19937;
+
+std::random_device dev;
+
+std::mt19937 rng(dev());
+
+uint32_t randomer(rng_t& rng, uint32_t range) 
+{
+    range += 1;
+    uint32_t x = rng();
+    uint64_t m = uint64_t(x) * uint64_t(range);
+    uint32_t l = uint32_t(m);
+    if (l < range) {
+        uint32_t t = -range;
+        if (t >= range) {
+            t -= range;
+            if (t >= range) 
+                t %= range;
+        }
+        while (l < t) {
+            x = rng();
+            m = uint64_t(x) * uint64_t(range);
+            l = uint32_t(m);
+        }
+    }
+    return m >> 32;
+}
+
+int testa = 0;
+
+enum type 
+{
+    player,
+    mob,
+    plant,
+    tree,
+    bullet,
+    knight
+};
+
+enum zemlya
+{
+    water,
+    dirt,
+    grass,
+    sand,
+    fire
+};
+
+enum control
+{
+    erafia,
+    erafia_base,
+    krigan,
+    krigan_base
+};
 
 class object
 {
@@ -51,79 +112,91 @@ class object
         int x;  
         int y; 
 
-        float x_loc;
-        float y_loc;
+        double x_loc;
+        double y_loc;
 
-        float v_x;
-        float v_y;
-
-        bool plant = false;
-
-        bool player = false;
-
-        bool mob = false; 
-
-        bool fire = false;
-
-        bool tree = false;
+        double v_x;
+        double v_y;
 
         bool dead;
 
-        int hp;
+        double hp;
 
-        float speed;
+        double speed;
 
         int aim;
 
-        object(int x, int y, string type) 
-        { 
+        short int type;
 
+        short int ready;
+
+        object(int x, int y, enum type typ) 
+        { 
             this->x = x;
             this->y = y;
 
             this->x_loc = x + 0.5;
             this->y_loc = y + 0.5;
 
-            this->speed = 0.1;
-
             this->v_x = 0.0;
             this->v_y = 0.0;
-
-            this->hp = 1000;
 
             this->dead = false;
 
             this->aim = -1;
 
-            if (type == "player")
-                this->player = true;
+            this->ready = randomer(rng, 1000);
 
-            if (type == "plant")
-                this->plant = true;
-
-            if (type == "mob")
-                this->mob = true;
-
-            if (type == "fire")
-                this->fire = true;
-
-            if (type == "tree")
-                this->tree = true;
+            switch(typ)
+            {
+                case player:
+                    this->type = player;
+                    this->hp = 100;
+                    this->speed = 0.1;
+                    break;
+                case mob:
+                    this->type = mob;
+                    this->hp = 1000;
+                    this->speed = 0.1;
+                    break;
+                case plant:
+                    this->type = plant;
+                    this->hp = 100;
+                    this->speed = 0;
+                    break;
+                case tree:
+                    this->type = tree;
+                    this->hp = 1000;
+                    this->speed = 0;
+                    break;
+                case bullet:
+                    this->type = bullet;
+                    this->hp = 100;
+                    this->speed = 1;
+                    break;
+                case knight:
+                    this->type = knight;
+                    this->hp = 100;
+                    this->speed = 0.1;
+                    break;
+            }
         }
-
-        int cell_number()
-        {
-            return x*WORLD_WIDTH + y;
-        }
+            int cell_number()
+            {
+                return x*WORLD_WIDTH + y;
+            }
 };
 
-class NPC: public object
+class projectile: public object
 {
 public:
-
-    double poo;
-    double pee;
-
+    tuple <double, double> velocity;
+        projectile(int x, int y, enum type typ,tuple <double, double> velocity):object(x,y,typ)
+        {
+            this->velocity = velocity;
+            this->v_x = get<0>(velocity);
+            this->v_y = get<1>(velocity);
+        }
 };
 
 class cell 
@@ -163,8 +236,9 @@ class cell
 
         bool fire;
 
-        int iron;
+        int relief;
 
+        short int control;
 
         cell(int x, int y) 
         { 
@@ -184,8 +258,6 @@ class cell
             this->dirt = 0;
 
             this->fire = 0;
-
-            this->iron = 0;
 
             vector<object> inside;
         }
@@ -281,47 +353,6 @@ class cell
         }
 };
 
-static Uint32 next_time;
-
-Uint32 time_left(void)
-{
-    Uint32 now;
-
-    now = SDL_GetTicks();
-    if(next_time <= now)
-        return 0;
-    else
-        return next_time - now;
-}
-
-using rng_t = std::mt19937;
-
-std::random_device dev;
-
-std::mt19937 rng(dev());
-
-uint32_t randomer(rng_t& rng, uint32_t range) 
-{
-    range += 1;
-    uint32_t x = rng();
-    uint64_t m = uint64_t(x) * uint64_t(range);
-    uint32_t l = uint32_t(m);
-    if (l < range) {
-        uint32_t t = -range;
-        if (t >= range) {
-            t -= range;
-            if (t >= range) 
-                t %= range;
-        }
-        while (l < t) {
-            x = rng();
-            m = uint64_t(x) * uint64_t(range);
-            l = uint32_t(m);
-        }
-    }
-    return m >> 32;
-}
-
 int tor_cord(int x)
 {
     if (x < 0)
@@ -335,28 +366,8 @@ int tor_cord(int x)
     return x;
 }
 
-void spiral(vector<cell> world, int size, int start)
-{
-    cell* pos = &world[start];
-    int use = 1;
-    int k = 0;
-    for (int i = 0; i < size; i++)
-    {
-        for (int a = 0; a < use; a++)   
-        {
-            pos = pos->side_spiral(k%4); 
-        }
-        k += 1;
-        for (int b = 0; b < use; b++)   
-        {
-            pos = pos->side_spiral(k%4); 
-        }
-        use += 1;
-    }
-}
-
 int tile_spiral(int d)
-        {
+{
             if (d == 0)
                 return -1;
             if (d == 1)
@@ -367,10 +378,130 @@ int tile_spiral(int d)
                 return +1;
             else
                 return 0;
-        }
+}
 
-int main()
+int spiral_aim(vector<cell> world, int size, int start, int goal)
 {
+    cell* pos = &world[start];
+    vector<object>::iterator it_obj;
+    bool stop = 0;
+    int use = 0;
+    int k = 0;
+    int aim = -1;
+    for (int i = 0; i < size; i++)
+    {
+        #pragma omp parallel for
+        for (int a = 0; a < use; a++)   
+        {
+            pos = pos->side_spiral(k%4);
+            if (!pos->inside.empty())
+            {
+                if (pos->inside[0].type == goal)
+                {
+                    aim = pos->get_n();
+                    stop = true;
+                }
+            }
+        } 
+        if (stop == true)
+            break;        
+        k += 1;
+        #pragma omp parallel for
+        for (int b = 0; b < use; b++)   
+        {
+            pos = pos->side_spiral(k%4);
+            if (!pos->inside.empty())
+            {
+                if (pos->inside[0].type == goal)
+                {
+                        aim = pos->get_n();
+                        stop = true;
+                }
+            }
+        }  
+        if (stop == true)
+            break;    
+        k += 1;
+        use += 1;
+    }
+    return aim;
+}
+
+tuple<double,double> beam(int x1, int y1, int x2, int y2, double c)
+{
+    double k;
+    double dx;
+    double sin = y1-y2;
+    double cos = x1-x2;
+    if (abs(sin) >= abs(cos))
+    {
+        k = (sin)/(cos);
+        if (x1 < x2)
+        {
+            dx = c/sqrt(k*k+1);
+            return {dx, k*dx};
+        }
+        else
+        {
+            dx = -c/sqrt(k*k+1);
+            return {dx, k*dx};
+        }
+    }
+    else 
+    {
+        k = (cos)/(sin);
+        if (y1 < y2)
+        {
+            dx = c/sqrt(k*k+1);
+            return {k*dx, dx};
+        }
+        else
+        {
+            dx = -c/sqrt(k*k+1);
+            return {k*dx, dx};
+        }    
+    }
+}   
+
+vector<cell> read_map(string map, vector<cell> world)
+{
+    string line;
+    ifstream file;
+    file.open(map);
+    if (file.is_open())
+    {
+        int world_n  = 0;
+        int RGB_n = 0;
+        while (getline(file, line))
+        {    
+            switch(RGB_n)
+            {   
+                case 0: 
+                    world[world_n].R = stoi(line);
+                    RGB_n += 1;
+                    break;
+                case 1: 
+                    world[world_n].G = stoi(line);
+                    RGB_n += 1;
+                    break;
+                case 2: 
+                    world[world_n].B = stoi(line);
+                    RGB_n = 0;
+                    world_n += 1;
+                    break;
+            } 
+        }
+        file.close();
+        return world;
+    }
+    else 
+        cout << "NO MAP";
+        exit(0);
+}
+
+int main(int argc, char **argv)
+{
+
     int TILE_SIZE = 10;
 
     int tiles_in_window = WINDOW_HEIGHT/TILE_SIZE;
@@ -418,34 +549,44 @@ int main()
     int drop;
     int zapas = 0;
 
-    string line;
-    ifstream file;
-    file.open("enrot.txt");
-    gena = 0;
-    zapas = 0;
-    while ( getline(file, line) )
-    { 
-        if (zapas == 0)
+    world = read_map("politik.txt", world);
+
+    int krigan_score = 0;
+    int erafia_score = 0;
+
+    #pragma omp parallel for
+    for (it = world.begin(); it != world.end(); ++it)
+    {
+        if (it->R > it->G)
         {
-            world[gena].R = stoi(line);
-            zapas+=1;
+            it->control = krigan;
+            krigan_score += 1;
         }
-        else if (zapas == 1)
+        else if (it->R < it->G)
         {
-            world[gena].G = stoi(line);
-            zapas+=1;
+            it->control = erafia;
+            erafia_score += 1;
         }
-        else if (zapas == 2)
+        else if (it->R < 100 and it->G < 100 and it->B < 100)
         {
-            world[gena].B = stoi(line);
-            zapas = 0;
-            gena+= 1;
+            it->control = erafia_base;
+            erafia_score += 100;
+        }
+        else if (it->R > 200 and it->G > 200 and it->B > 200)
+        {
+            it->control = krigan_base;
+            krigan_score += 100;
+        }
+        else
+        {
+            it->control = krigan;
+            krigan_score += 1;
         }
     }
-    file.close();
 
-    #pragma omp parallel
-    #pragma omp for
+    world = read_map("enrot.txt", world);
+
+    #pragma omp parallel for
     for (it = world.begin(); it != world.end(); ++it)
     {
         if (it->B > 90 and it->R < 50 and it->G < 100)
@@ -478,8 +619,7 @@ int main()
             }
     } 
 
-    #pragma omp parallel
-    #pragma omp for
+    #pragma omp parallel for
     for (it = world.begin(); it != world.end(); ++it)
     {
         if (it->terra == 1)
@@ -493,7 +633,7 @@ int main()
                 }
             }
         }
-    } 
+    }
 
     perbor = 0;
     gena = 0;
@@ -504,19 +644,31 @@ int main()
         drop  = randomer(rng, WORLD_WIDTH*WORLD_WIDTH);
         if (world[drop].inside.empty() and world[drop].terra == 1)
         {
-            world[drop].inside.push_back(object(world[drop].get_x(),world[drop].get_y(), "plant"));
+            world[drop].inside.push_back(object(world[drop].get_x(),world[drop].get_y(), plant));
             gena += 1;
         }
     }
 
     gena = 0;
 
-    while (gena < 100)
+    while (gena < krigan_score/1000)
     {
         drop  = randomer(rng, WORLD_WIDTH*WORLD_WIDTH);
-        if (world[drop].inside.empty() and world[drop].terra == 1)
+        if (world[drop].inside.empty() and world[drop].water == 0 and world[drop].control == krigan)
         {
-            world[drop].inside.push_back(object(world[drop].get_x(),world[drop].get_y(), "mob"));
+            world[drop].inside.push_back(object(world[drop].get_x(),world[drop].get_y(), mob));
+            gena += 1;
+        }
+    }
+
+    gena = 0;
+
+    while (gena < erafia_score/1000)
+    {
+        drop  = randomer(rng, WORLD_WIDTH*WORLD_WIDTH);
+        if (world[drop].inside.empty() and world[drop].water == 0 and world[drop].control == erafia)
+        {
+            world[drop].inside.push_back(object(world[drop].get_x(),world[drop].get_y(), knight));
             gena += 1;
         }
     }
@@ -528,12 +680,13 @@ int main()
         drop  = randomer(rng, WORLD_WIDTH*WORLD_WIDTH);
         if (world[drop].inside.empty() and world[drop].terra == 1)
         {
-            world[drop].inside.push_back(object(world[drop].get_x(),world[drop].get_y(), "tree"));
+            world[drop].inside.push_back(object(world[drop].get_x(),world[drop].get_y(), tree));
             gena += 1;
         }
     }
 
     int player_n;
+
 
     while (true)
     {
@@ -543,14 +696,13 @@ int main()
             player_n = drop;
             break;
         }
-
     }
 
-    world[player_n].inside.push_back(object(world[player_n].get_x(),world[player_n].get_y(), "player"));
+    world[player_n].inside.push_back(object(world[player_n].get_x(),world[player_n].get_y(), player));
 
     SDL_Event event;
-    SDL_Renderer *renderer;
     SDL_Window *window;
+    SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
 
     SDL_Init(SDL_INIT_VIDEO);
     SDL_CreateWindowAndRenderer(WINDOW_WIDTH, WINDOW_HEIGHT, 0, &window, &renderer);
@@ -560,24 +712,20 @@ int main()
     int curs_x;
     int curs_y;
 
-    float koef;
+    double koef;
 
     bool stop;
 
     bool buttonPressed = false;
-    bool keyPressed = false;
-    bool suck_mod = false;
     bool map_mod = false;
-     bool paused = false;
-
+    bool politik_mod = false;
+    bool paused = false;
 
     bool armag_mod = false;
-
-    bool lighting_mod = false;
     int light_x;
     int light_y;
-
-    int l_count;
+    double aim_x;
+    double aim_y;
 
     int key;
 
@@ -597,9 +745,6 @@ int main()
     player_texture[4] = IMG_LoadTexture(renderer, "Untitled_Artwork-5.png");
     player_texture[5] = IMG_LoadTexture(renderer, "Untitled_Artwork-6.png");
 
-    SDL_Texture *girl_texture;
-    girl_texture = IMG_LoadTexture(renderer, "aim.png");
-
     SDL_Rect long_tile;
     long_tile.w = TILE_SIZE;
     long_tile.h = TILE_SIZE;
@@ -608,34 +753,36 @@ int main()
     minimap_dot.w = 10;
     minimap_dot.h = 10;
 
+    SDL_Rect pixel_tile;
+    pixel_tile.w = 1;
+    pixel_tile.h = 1;
+
     int player_anim = 0;
 
     int player_speed = 1000;
 
+    //TEXTURES
+    //SDL_Texture *_texture = IMG_LoadTexture(renderer, ".png");
+
     SDL_Texture *plant_texture = IMG_LoadTexture(renderer, "plant.png");
-
     SDL_Texture *tree_texture = IMG_LoadTexture(renderer, "palm.png");
-
     SDL_Texture *cow_texture = IMG_LoadTexture(renderer, "cow.png");
-
     SDL_Texture *water_texture = IMG_LoadTexture(renderer, "water.png");
-
     SDL_Texture *grass_texture = IMG_LoadTexture(renderer, "grass.png");
-
     SDL_Texture *sand_texture = IMG_LoadTexture(renderer, "sand.png");
-
     SDL_Texture *dirt_texture = IMG_LoadTexture(renderer, "dirt.png");
-
     SDL_Texture *armag_texture = IMG_LoadTexture(renderer, "armag.png");
-
     SDL_Texture *crater_texture = IMG_LoadTexture(renderer, "crater.png");
+    SDL_Texture *red_zone = IMG_LoadTexture(renderer, "red_zone.png");
+    SDL_Texture *girl_texture = IMG_LoadTexture(renderer, "aim.png");
+    SDL_Texture *red_zone_texture = IMG_LoadTexture(renderer, "zone1.png");
+    SDL_Texture *green_zone_texture = IMG_LoadTexture(renderer, "zone0.png");
+    SDL_Texture *footman_texture = IMG_LoadTexture(renderer, "footman.png");
 
     SDL_Texture *panel_on_left = IMG_LoadTexture(renderer, "panel_on_left.png");
     SDL_Texture *panel_on_right = IMG_LoadTexture(renderer, "panel_on_right.png");
     SDL_Texture *panel_off_left = IMG_LoadTexture(renderer, "panel_off_left.png");
     SDL_Texture *panel_off_right = IMG_LoadTexture(renderer, "panel_off_right.png");
-
-    SDL_Texture *red_zone = IMG_LoadTexture(renderer, "red_zone.png");
 
     SDL_Rect left_panel;
     left_panel.w = SIDE_MENU;
@@ -717,8 +864,6 @@ int main()
     mocha = std::to_string(42);
     govno = std::to_string(42);
 
-    keyPressed = false;
-
     bool occupied = false;
 
     bool quit = 0;
@@ -730,22 +875,16 @@ int main()
 
     while (quit == false) 
     {
-        player_anim += 1;
-        player_anim = player_anim%6;
-
         //USER INPUT CHECK
 
         if (SDL_PollEvent(&event))
         {
-            if (event.type == SDL_QUIT)
-                break;
-            else if (event.type == SDL_MOUSEBUTTONDOWN and keyPressed == false)
+            if (event.type == SDL_MOUSEBUTTONDOWN)
             {
-                keyPressed = true;
                 SDL_GetMouseState(&curs_x, &curs_y);
                 for (it_inside = world[player_n].inside.begin(); it_inside != world[player_n].inside.end(); ++it_inside)
                     {
-                        if (it_inside->player == true)
+                        if (it_inside->type == player)
                         {
                             it_inside->y += (curs_y-WINDOW_HEIGHT/2)/TILE_SIZE;
                             it_inside->x += (curs_x-WINDOW_WIDTH/2)/TILE_SIZE;
@@ -756,291 +895,249 @@ int main()
                         }
                     }
             }
-            else if (event.type == SDL_KEYDOWN and keyPressed == false)
+            else if (event.type == SDL_KEYDOWN)
             {
-                key = event.key.keysym.sym;
-                if (key == SDLK_s)
+                switch(event.key.keysym.sym)
                 {
-                    suck_mod = not suck_mod;
-                    keyPressed = true;
-                }
-                else if (key == SDLK_f)
-                {
-                    armag_mod = not armag_mod;
-                }
-                else if (key == SDLK_l and lighting_mod == false)
-                {
-                    lighting_mod = true;
-                    l_count = 10;
-                    SDL_GetMouseState(&light_x, &light_y);
-                    for (it_inside = world[player_n].inside.begin(); it_inside != world[player_n].inside.end(); ++it_inside)
-                    {
-                        if (it_inside->player == true)
+                    case SDLK_f:
+                         armag_mod = not armag_mod;
+                         break;
+                    case SDLK_l:
+                            SDL_GetMouseState(&light_x, &light_y);
+                            for (it_inside = world[player_n].inside.begin(); it_inside != world[player_n].inside.end(); ++it_inside)
+                            {
+                                if (it_inside->type == player)
+                                {
+                                    aim_y = it_inside->y + (light_y-WINDOW_HEIGHT/2)/TILE_SIZE;
+                                    aim_x = it_inside->x + (light_x-WINDOW_WIDTH/2)/TILE_SIZE;
+                                    aim_y = tor_cord(aim_y);
+                                    aim_x = tor_cord(aim_x);
+                                    objects_buff.push_back(projectile(it_inside->x, it_inside->y,bullet,beam(WINDOW_WIDTH/2.0, WINDOW_HEIGHT/2.0, light_x/1.0, light_y/1.0, 1)));
+                                    break;
+                                }
+                            }
+                        break;
+                    case SDLK_m:
+                        map_mod = not map_mod;
+                        break;
+                    case SDLK_UP:
+                        for (it_inside = world[player_n].inside.begin(); it_inside != world[player_n].inside.end(); ++it_inside)
                         {
-                            light_y = it_inside->y + (light_y-WINDOW_HEIGHT/2)/TILE_SIZE;
-                            light_x = it_inside->x + (light_x-WINDOW_WIDTH/2)/TILE_SIZE;
-                            light_y = tor_cord(light_y);
-                            light_x = tor_cord(light_x);
-                            break;
+                            if (it_inside->type == player)
+                            {
+                                it_inside->y -= 1;
+                                it_inside->y = tor_cord(it_inside->y);
+                                player_n = it_inside->cell_number();
+                                break;
+                            }
                         }
-                    }
-
-                }
-                else if (key == SDLK_m)
-                {
-                    map_mod = not map_mod;
-                }
-                else if (key == SDLK_UP)
-                {
-                    for (it_inside = world[player_n].inside.begin(); it_inside != world[player_n].inside.end(); ++it_inside)
-                    {
-                        if (it_inside->player == true)
+                        break;
+                    case SDLK_DOWN:
+                        for (it_inside = world[player_n].inside.begin(); it_inside != world[player_n].inside.end(); ++it_inside)
                         {
-                            it_inside->y -= 1;
-                            it_inside->y = tor_cord(it_inside->y);
-                            player_n = it_inside->cell_number();
-                            break;
+                            if (it_inside->type == player)
+                            {
+                                it_inside->y += 1;
+                                it_inside->y = tor_cord(it_inside->y);
+                                player_n = it_inside->cell_number();
+                                break;
+                            }
                         }
-                    }
-                    keyPressed = true;
-                }
-                else if (key == SDLK_DOWN)
-                {
-                    for (it_inside = world[player_n].inside.begin(); it_inside != world[player_n].inside.end(); ++it_inside)
-                    {
-                        if (it_inside->player == true)
+                        break;
+                    case SDLK_LEFT:
+                        for (it_inside = world[player_n].inside.begin(); it_inside != world[player_n].inside.end(); ++it_inside)
                         {
-                            it_inside->y += 1;
-                            it_inside->y = tor_cord(it_inside->y);
-                            player_n = it_inside->cell_number();
-                            break;
+                            if (it_inside->type == player)
+                            {
+                                it_inside->x -= 1;
+                                it_inside->x = tor_cord(it_inside->x);
+                                player_n = it_inside->cell_number();
+                                break;
+                            }
                         }
-                    }
-                    keyPressed = true;
-                }
-                else if (key == SDLK_LEFT)
-                {
-                    for (it_inside = world[player_n].inside.begin(); it_inside != world[player_n].inside.end(); ++it_inside)
-                    {
-                        if (it_inside->player == true)
+                        break;
+                    case SDLK_RIGHT:
+                        for (it_inside = world[player_n].inside.begin(); it_inside != world[player_n].inside.end(); ++it_inside)
                         {
-                            it_inside->x -= 1;
-                            it_inside->x = tor_cord(it_inside->x);
-                            player_n = it_inside->cell_number();
-                            break;
+                            if (it_inside->type == player)
+                            {
+                                it_inside->x += 1;
+                                it_inside->x = tor_cord(it_inside->x);
+                                player_n = it_inside->cell_number();
+                                break;
+                            }
                         }
-                    }
-                    keyPressed = true;
+                        break;
+                    case SDLK_EQUALS:
+                        TILE_SIZE += 10;
+                        if (TILE_SIZE > 50)
+                            TILE_SIZE = 50;
+                        tiles_in_window = WINDOW_HEIGHT/TILE_SIZE;
+                        center_tile = tiles_in_window/2;
+                        tile.w = TILE_SIZE;
+                        tile.h = TILE_SIZE;
+                        small_tile.w = TILE_SIZE/10;
+                        small_tile.h = TILE_SIZE/10;
+                        long_tile.w = TILE_SIZE;
+                        long_tile.h = TILE_SIZE;
+                        break;
+                    case SDLK_MINUS:
+                        TILE_SIZE -= 10;
+                        if (TILE_SIZE < 10)
+                            TILE_SIZE = 10;
+                        tiles_in_window = WINDOW_HEIGHT/TILE_SIZE;
+                        center_tile = tiles_in_window/2;
+                        tile.w = TILE_SIZE;
+                        tile.h = TILE_SIZE;
+                        small_tile.w = TILE_SIZE/10;
+                        small_tile.h = TILE_SIZE/10;
+                        long_tile.w = TILE_SIZE;
+                        long_tile.h = TILE_SIZE;
+                        break;
+                    case SDLK_SPACE:
+                        paused = !paused;
+                        break;
+                    case SDLK_ESCAPE:
+                        quit = true;
+                        break;
+                    default:
+                        break;
                 }
-                else if (key == SDLK_RIGHT)
-                {
-                    for (it_inside = world[player_n].inside.begin(); it_inside != world[player_n].inside.end(); ++it_inside)
-                    {
-                        if (it_inside->player == true)
-                        {
-                            it_inside->x += 1;
-                            it_inside->x = tor_cord(it_inside->x);
-                            player_n = it_inside->cell_number();
-                            break;
-                        }
-                    }
-                    keyPressed = true;
-                }
-                else if (key == SDLK_EQUALS)
-                {
-                    TILE_SIZE += 10;
-                    if (TILE_SIZE > 50)
-                        TILE_SIZE = 50;
-                    tiles_in_window = WINDOW_HEIGHT/TILE_SIZE;
-                    center_tile = tiles_in_window/2;
-                    tile.w = TILE_SIZE;
-                    tile.h = TILE_SIZE;
-                    small_tile.w = TILE_SIZE/10;
-                    small_tile.h = TILE_SIZE/10;
-                    long_tile.w = TILE_SIZE;
-                    long_tile.h = TILE_SIZE;
-                }
-                else if (key == SDLK_MINUS)
-                {
-                    TILE_SIZE -= 10;
-                    if (TILE_SIZE < 10)
-                        TILE_SIZE = 10;
-                    tiles_in_window = WINDOW_HEIGHT/TILE_SIZE;
-                    center_tile = tiles_in_window/2;
-                    tile.w = TILE_SIZE;
-                    tile.h = TILE_SIZE;
-                    small_tile.w = TILE_SIZE/10;
-                    small_tile.h = TILE_SIZE/10;
-                    long_tile.w = TILE_SIZE;
-                    long_tile.h = TILE_SIZE;
-                }
-                else if (key == SDLK_SPACE)
-                {
-                    paused = !paused;
-                }
-                else if (key == SDLK_ESCAPE)
-                    quit = true;
             }
         }
 
-            keyPressed = false;
-
             //PHYSICS
+
+            testa = 0;
 
             if (paused == false)
             {
-                if (l_count > 0)
-                    l_count -= 1;
-                if (lighting_mod == true and l_count == 0)
-                    lighting_mod = false;
-                #pragma omp for
-                for (it = world.begin(); it != world.end(); ++it)
-                {
-                }
-
                 for (it = world.begin(); it != world.end(); ++it)
                 {
                     if (it->fire == 1)
                     {
+                        #pragma omp parallel for
                         for (it_inside = it->inside.begin(); it_inside != it->inside.end(); ++it_inside)
                         {
                             it_inside->dead = 1;
                         }
                         it->fire = 0;
                     }
+                }
 
-                    if (!it->inside.empty() and it->fire != 1)
+                for (it = world.begin(); it != world.end(); ++it)
+                {
+                    if (!it->inside.empty())
                     {
                         for (it_inside = it->inside.begin(); it_inside != it->inside.end(); ++it_inside)
                         {
-                            if (it_inside->mob == 1)
+                            switch (it_inside->type)
                             {
-                                koef = 0;
-                                if (it->terra == false)
-                                    koef = 0.01;
-                                else if (it->terra == true)
-                                    koef = 0.1;
-                                if (it_inside->aim != -1)
-                                {
-                                    if (it_inside->x < world[it_inside->aim].get_x())
-                                        it_inside->v_x = koef*randomer(rng, 10);
-                                    else if (it_inside->x > world[it_inside->aim].get_x())
-                                        it_inside->v_x = -koef*randomer(rng, 10);
-                                    else if (it_inside->x == world[it_inside->aim].get_x())
+                                case mob:
+                                    it->control = krigan;
+                                    it_inside->ready += 1;
+                                    if (it_inside->aim == -1 and it_inside->ready > 1000)
                                     {
-                                        it_inside->v_x = koef*randomer(rng, 10);
-                                        it_inside->v_x -= koef*randomer(rng, 10);
+                                        it_inside->aim = spiral_aim(world, 10, it_inside->cell_number(), knight);
+                                        it_inside->ready = 0;
                                     }
-                                    if (it_inside->y < world[it_inside->aim].get_y())
-                                        it_inside->v_y = koef*randomer(rng, 10);
-                                    else if (it_inside->y > world[it_inside->aim].get_y())
-                                        it_inside->v_y = -koef*randomer(rng, 10);
-                                    else if (it_inside->y == world[it_inside->aim].get_y())
+                                    else if (it_inside->aim != -1)
                                     {
-                                        it_inside->v_y = koef*randomer(rng, 10);
-                                        it_inside->v_y -= koef*randomer(rng, 10);
+                                        it_inside->v_x = world[it_inside->aim].get_x() - it_inside->x/abs(world[it_inside->aim].get_x() - it_inside->x)*it_inside->speed;
+                                        it_inside->v_y = world[it_inside->aim].get_y() - it_inside->y/abs(world[it_inside->aim].get_y() - it_inside->y)*it_inside->speed;
                                     }
-                                    it_inside->x_loc += it_inside->speed*it_inside->v_x;
-                                    it_inside->y_loc += it_inside->speed*it_inside->v_y;
-                                    it_inside->x = it_inside->x_loc;
-                                    it_inside->y = it_inside->y_loc;
-                                }
-                                if (it_inside->aim != -1 and it_inside->x == world[it_inside->aim].get_x() and it_inside->y == world[it_inside->aim].get_y())
-                                {
-                                    for (it_obj = world[it_inside->aim].inside.begin(); it_obj != world[it_inside->aim].inside.end(); ++it_obj)
-                                                {
-                                                    if (it_obj->plant == 1)
-                                                    {
-                                                        it_inside->aim = -1;
-                                                        it_obj->dead = 1;
-                                                        it_inside->hp += it_obj->hp;
-                                                        break;
-                                                    }
-                                                }
-                                    it_inside->aim = -1;
-                                }
-                                if (it_inside->aim != -1 and world[it_inside->aim].inside.empty() == true)
-                                {
-                                    it_inside->aim = -1;
-                                }
-                                if (it_inside->aim == -1)
-                                {
-                                    pos = &world[it->get_n()];
-                                    use = 0;
-                                    k = 0;
-                                    stop = false;
-                                    for (int i = 0; i <= 50; i++)
+                                    if (it_inside->aim == -1)
                                     {
-                                        for (int a = 0; a < use; a++)   
-                                        {   
-                                            pos = pos->side_spiral(k%4); 
-                                            if (!pos->inside.empty())
-                                            {
-                                                for (it_obj = pos->inside.begin(); it_obj != pos->inside.end(); ++it_obj)
-                                                {
-                                                    if (it_obj->plant == 1)
-                                                    {
-                                                        it_inside->aim = it_obj->cell_number();
-                                                        stop = true;
-                                                        break;
-                                                    }
-                                                }
-                                            }
-                                        }    
-                                        if (stop == true)
-                                            break;               
-                                        k += 1;
-                                        for (int b = 0; b < use; b++)   
+                                        if (it->water == 1)
                                         {
-                                            pos = pos->side_spiral(k%4); 
-                                            if (!pos->inside.empty())
-                                            {
-                                                for (it_obj = pos->inside.begin(); it_obj != pos->inside.end(); ++it_obj)
-                                                {
-                                                    if (it_obj->plant == 1)
-                                                    {
-                                                        it_inside->aim = it_obj->cell_number();
-                                                        stop = true;
-                                                        break;
-                                                    }
-                                                }
-                                            }
+                                            it_inside->v_x = 0;
+                                            it_inside->v_y = 0;
+                                            it_inside->v_x += it_inside->speed*randomer(rng,10)/100;
+                                            it_inside->v_x -= it_inside->speed*randomer(rng,10)/100;
+                                            it_inside->v_y += it_inside->speed*randomer(rng,10)/100;
+                                            it_inside->v_y -= it_inside->speed*randomer(rng,5)/100;
                                         }
-                                        if (stop == true)
-                                            break;    
-                                        k += 1;
-                                        use += 1;
+                                        else
+                                        {
+                                            it_inside->v_x += it_inside->speed*randomer(rng,10)/10;
+                                            it_inside->v_x -= it_inside->speed*randomer(rng,10)/10;
+                                            it_inside->v_y += it_inside->speed*randomer(rng,10)/10;
+                                            it_inside->v_y -= it_inside->speed*randomer(rng,5)/10;
+                                        }
                                     }
-                                    it_inside->v_x = koef*randomer(rng, 10);
-                                    it_inside->v_x -= koef*randomer(rng, 10);
-                                    it_inside->v_y = koef*randomer(rng, 10);
-                                    it_inside->v_y -= koef*randomer(rng, 10);
-                                    it_inside->x_loc += it_inside->speed*it_inside->v_x;
-                                    it_inside->y_loc += it_inside->speed*it_inside->v_y;
+                                    if (abs(it_inside->v_x) > abs(it_inside->speed))
+                                        it_inside->v_x = it_inside->v_x/abs(it_inside->v_x)*it_inside->speed;
+                                    if (abs(it_inside->v_y) > abs(it_inside->speed))
+                                        it_inside->v_y = it_inside->v_y/abs(it_inside->v_y)*it_inside->speed;
+                                    it_inside->x_loc += it_inside->v_x;
+                                    it_inside->y_loc += it_inside->v_y;
                                     it_inside->x = it_inside->x_loc;
                                     it_inside->y = it_inside->y_loc;
-                                }
+                                    break;
+
+                                case knight:
+                                    it->control = erafia;
+                                    it_inside->ready += 1;
+                                    if (it_inside->aim == -1 and it_inside->ready > 1000)
+                                    {
+                                        it_inside->aim = spiral_aim(world, 10, it_inside->cell_number(), mob);
+                                        it_inside->ready = 0;
+                                    }
+                                    else if (it_inside->aim != -1)
+                                    {
+                                        it_inside->v_x = world[it_inside->aim].get_x() - it_inside->x/abs(world[it_inside->aim].get_x() - it_inside->x)*it_inside->speed;
+                                        it_inside->v_y = world[it_inside->aim].get_y() - it_inside->y/abs(world[it_inside->aim].get_y() - it_inside->y)*it_inside->speed;
+                                    }
+                                    if (it_inside->aim == -1)
+                                    {
+                                        if (it->water == 1)
+                                        {
+                                            it_inside->v_x = 0;
+                                            it_inside->v_y = 0;
+                                            it_inside->v_x += it_inside->speed*randomer(rng,10)/100;
+                                            it_inside->v_x -= it_inside->speed*randomer(rng,10)/100;
+                                            it_inside->v_y += it_inside->speed*randomer(rng,5)/100;
+                                            it_inside->v_y -= it_inside->speed*randomer(rng,10)/100;
+                                        }
+                                        else
+                                        {
+                                            it_inside->v_x += it_inside->speed*randomer(rng,10)/10;
+                                            it_inside->v_x -= it_inside->speed*randomer(rng,10)/10;
+                                            it_inside->v_y += it_inside->speed*randomer(rng,5)/10;
+                                            it_inside->v_y -= it_inside->speed*randomer(rng,10)/10;
+                                        }
+                                    }
+                                    if (abs(it_inside->v_x) > abs(it_inside->speed))
+                                        it_inside->v_x = it_inside->v_x/abs(it_inside->v_x)*it_inside->speed;
+                                    if (abs(it_inside->v_y) > abs(it_inside->speed))
+                                        it_inside->v_y = it_inside->v_y/abs(it_inside->v_y)*it_inside->speed;
+                                    it_inside->x_loc += it_inside->v_x;
+                                    it_inside->y_loc += it_inside->v_y;
+                                    it_inside->x = it_inside->x_loc;
+                                    it_inside->y = it_inside->y_loc;
+                                    break;
+
+                                case bullet:
+                                    for (it_obj = it->inside.begin(); it_obj != it->inside.end(); ++it_obj)
+                                    {
+                                        if (it_obj->type == mob)
+                                        {
+                                            it_obj->dead = true;
+                                            it_inside->dead = true;
+                                            break;
+                                        }
+                                    }
+                                    it_inside->x_loc += it_inside->v_x;
+                                    it_inside->y_loc += it_inside->v_y;
+                                    it_inside->x = it_inside->x_loc;
+                                    it_inside->y = it_inside->y_loc;
+                                    it_inside->hp -= 1;
+                                    if (it_inside->hp<0)
+                                        it_inside->dead = true;
+                                    break;
                             }
-                            if (it_inside->plant == 1)
-                            {
-                                it_inside->hp += 1;
-                            }
-                            if (it_inside->hp > 2000)
-                            {
-                                perbor = randomer(rng, 7);
-                                if (it->side(perbor)->B != 255 and it->side(perbor)->inside.empty() and it_inside->plant == 1)
-                                {
-                                    it_inside->hp = it_inside->hp-1000;
-                                    objects_buff.push_back(object(it->side(perbor)->get_x(), it->side(perbor)->get_y(),"plant"));
-                                }
-                                else if (it->side(perbor)->B != 255 and it->side(perbor)->inside.empty() and it_inside->mob == 1)
-                                {
-                                    it_inside->hp = it_inside->hp-1000;
-                                    objects_buff.push_back(object(it->side(perbor)->get_x(), it->side(perbor)->get_y(),"mob"));
-                                }
-                            }
-                        }
-                    } 
+                        } 
+                    }
                 }
             }
             
@@ -1074,15 +1171,14 @@ int main()
             SDL_RenderCopy(renderer, water_texture, NULL, &tile);
         if (pos->dirt == 1)
             SDL_RenderCopy(renderer, dirt_texture, NULL, &tile);
-        if (!pos->inside.empty() and pos->inside[0].plant == true)
+        if (!pos->inside.empty() and pos->inside[0].type == plant)
                 {
                     SDL_RenderCopy(renderer, plant_texture, NULL, &tile);
                 } 
-        if (!pos->inside.empty() and pos->inside[0].mob == true)
+        if (!pos->inside.empty() and pos->inside[0].type == mob)
                 {
                     SDL_RenderCopy(renderer, cow_texture, NULL, &tile);
                 } 
-        #pragma omp for
         for (int i = 0; i <= tiles_in_window; i++)
         {
             for (int a = 0; a < use; a++)   
@@ -1104,17 +1200,64 @@ int main()
                     SDL_RenderCopy(renderer, dirt_texture, NULL, &tile);
                 if (pos->dead == 1 and pos->water == 0)
                     SDL_RenderCopy(renderer, crater_texture, NULL, &tile);
-                if (!pos->inside.empty() and pos->inside[0].plant == true)
+                if (!pos->inside.empty() and pos->inside[0].type == plant)
                 {
                     SDL_RenderCopy(renderer, plant_texture, NULL, &tile);
                 } 
-                if (!pos->inside.empty() and pos->inside[0].mob == true)
+                if (!pos->inside.empty() and pos->inside[0].type == mob)
                 {
                     SDL_RenderCopy(renderer, cow_texture, NULL, &tile);
                 } 
-                if (!pos->inside.empty() and pos->inside[0].tree == true)
+                if (!pos->inside.empty() and pos->inside[0].type == knight)
+                {
+                    SDL_RenderCopy(renderer, footman_texture, NULL, &tile);
+                } 
+                if (!pos->inside.empty() and pos->inside[0].type == tree)
                 {
                     SDL_RenderCopy(renderer, tree_texture, NULL, &tile);
+                } 
+                if (!pos->inside.empty() and pos->inside[0].type == bullet)
+                {
+                    SDL_SetRenderDrawColor(renderer, 255, 255, 150, 255);
+                    small_tile.x = tile.x + randomer(rng, TILE_SIZE) - randomer(rng, TILE_SIZE) + TILE_SIZE/20;
+                    small_tile.y = tile.y + randomer(rng, TILE_SIZE) - randomer(rng, TILE_SIZE) + TILE_SIZE/20;
+                    SDL_RenderFillRect(renderer, &small_tile);
+                    SDL_SetRenderDrawColor(renderer, 255, 255, 150, 255);
+                    small_tile.x = tile.x + randomer(rng, TILE_SIZE) - randomer(rng, TILE_SIZE) + TILE_SIZE/20;
+                    small_tile.y = tile.y + randomer(rng, TILE_SIZE) - randomer(rng, TILE_SIZE) + TILE_SIZE/20;
+                    SDL_RenderFillRect(renderer, &small_tile);
+                    SDL_SetRenderDrawColor(renderer, 255, 255, 150, 255);
+                    small_tile.x = tile.x + randomer(rng, TILE_SIZE) - randomer(rng, TILE_SIZE) + TILE_SIZE/20;
+                    small_tile.y = tile.y + randomer(rng, TILE_SIZE) - randomer(rng, TILE_SIZE) + TILE_SIZE/20;
+                    SDL_RenderFillRect(renderer, &small_tile);
+                    SDL_SetRenderDrawColor(renderer, 255, 255, 150, 255);
+                    small_tile.x = tile.x + randomer(rng, TILE_SIZE) - randomer(rng, TILE_SIZE) + TILE_SIZE/20;
+                    small_tile.y = tile.y + randomer(rng, TILE_SIZE) - randomer(rng, TILE_SIZE) + TILE_SIZE/20;
+                    SDL_RenderFillRect(renderer, &small_tile);
+                    SDL_SetRenderDrawColor(renderer, 255, 255, 150, 255);
+                    small_tile.x = tile.x + randomer(rng, TILE_SIZE) - randomer(rng, TILE_SIZE) + TILE_SIZE/20;
+                    small_tile.y = tile.y + randomer(rng, TILE_SIZE) - randomer(rng, TILE_SIZE) + TILE_SIZE/20;
+                    SDL_RenderFillRect(renderer, &small_tile);
+                    SDL_SetRenderDrawColor(renderer, 255, 255, 150, 255);
+                    small_tile.x = tile.x + randomer(rng, TILE_SIZE) - randomer(rng, TILE_SIZE) + TILE_SIZE/20;
+                    small_tile.y = tile.y + randomer(rng, TILE_SIZE) - randomer(rng, TILE_SIZE) + TILE_SIZE/20;
+                    SDL_RenderFillRect(renderer, &small_tile);
+                    SDL_SetRenderDrawColor(renderer, 255, 255, 150, 255);
+                    small_tile.x = tile.x + randomer(rng, TILE_SIZE) - randomer(rng, TILE_SIZE) + TILE_SIZE/20;
+                    small_tile.y = tile.y + randomer(rng, TILE_SIZE) - randomer(rng, TILE_SIZE) + TILE_SIZE/20;
+                    SDL_RenderFillRect(renderer, &small_tile);
+                    SDL_SetRenderDrawColor(renderer, 255, 255, 150, 255);
+                    small_tile.x = tile.x + randomer(rng, TILE_SIZE) - randomer(rng, TILE_SIZE) + TILE_SIZE/20;
+                    small_tile.y = tile.y + randomer(rng, TILE_SIZE) - randomer(rng, TILE_SIZE) + TILE_SIZE/20;
+                    SDL_RenderFillRect(renderer, &small_tile);
+                    SDL_SetRenderDrawColor(renderer, 255, 255, 150, 255);
+                    small_tile.x = tile.x + randomer(rng, TILE_SIZE) - randomer(rng, TILE_SIZE) + TILE_SIZE/20;
+                    small_tile.y = tile.y + randomer(rng, TILE_SIZE) - randomer(rng, TILE_SIZE) + TILE_SIZE/20;
+                    SDL_RenderFillRect(renderer, &small_tile);
+                    SDL_SetRenderDrawColor(renderer, 255, 255, 150, 255);
+                    small_tile.x = tile.x + randomer(rng, TILE_SIZE) - randomer(rng, TILE_SIZE) + TILE_SIZE/20;
+                    small_tile.y = tile.y + randomer(rng, TILE_SIZE) - randomer(rng, TILE_SIZE) + TILE_SIZE/20;
+                    SDL_RenderFillRect(renderer, &small_tile);
                 } 
                 if (armag_mod == true and gena > 0)
                 {
@@ -1127,13 +1270,6 @@ int main()
                         pos->fire = 1;
                         gena -= 1;
                     }
-                }
-                if (lighting_mod == true and int(float(light_y - world[player_n].get_y())/float(light_x - world[player_n].get_x())) == int(float(pos->get_y() - world[player_n].get_y())/float(pos->get_x() - world[player_n].get_x())) and (abs(pos->get_y()-light_y) < abs(world[player_n].get_y()-light_y) or abs(pos->get_x()-light_x) < abs(world[player_n].get_x()-light_x)))
-                {
-                    pos->fire = 1;
-                    SDL_SetRenderDrawColor(renderer, 255, 200, 50, 255);
-                    for (int i = 0; i < TILE_SIZE; i++)
-                        SDL_RenderDrawPoint(renderer, tile.x + randomer(rng, TILE_SIZE) - randomer(rng, TILE_SIZE), tile.y + randomer(rng, TILE_SIZE) - randomer(rng, TILE_SIZE));
                 }
             }
             k += 1;
@@ -1156,17 +1292,64 @@ int main()
                     SDL_RenderCopy(renderer, dirt_texture, NULL, &tile);
                 if (pos->dead == 1 and pos->water == 0)
                     SDL_RenderCopy(renderer, crater_texture, NULL, &tile);
-                if (!pos->inside.empty() and pos->inside[0].plant == true)
+                if (!pos->inside.empty() and pos->inside[0].type == plant)
                 {
                     SDL_RenderCopy(renderer, plant_texture, NULL, &tile);
                 } 
-                if (!pos->inside.empty() and pos->inside[0].mob == true)
+                if (!pos->inside.empty() and pos->inside[0].type == mob)
                 {
                     SDL_RenderCopy(renderer, cow_texture, NULL, &tile);
                 } 
-                if (!pos->inside.empty() and pos->inside[0].tree == true)
+                if (!pos->inside.empty() and pos->inside[0].type == knight)
+                {
+                    SDL_RenderCopy(renderer, footman_texture, NULL, &tile);
+                } 
+                if (!pos->inside.empty() and pos->inside[0].type == tree)
                 {
                     SDL_RenderCopy(renderer, tree_texture, NULL, &tile);
+                } 
+                if (!pos->inside.empty() and pos->inside[0].type == bullet)
+                {
+                    SDL_SetRenderDrawColor(renderer, 255, 255, 150, 255);
+                    small_tile.x = tile.x + randomer(rng, TILE_SIZE) - randomer(rng, TILE_SIZE) + TILE_SIZE/20;
+                    small_tile.y = tile.y + randomer(rng, TILE_SIZE) - randomer(rng, TILE_SIZE) + TILE_SIZE/20;
+                    SDL_RenderFillRect(renderer, &small_tile);
+                    SDL_SetRenderDrawColor(renderer, 255, 255, 150, 255);
+                    small_tile.x = tile.x + randomer(rng, TILE_SIZE) - randomer(rng, TILE_SIZE) + TILE_SIZE/20;
+                    small_tile.y = tile.y + randomer(rng, TILE_SIZE) - randomer(rng, TILE_SIZE) + TILE_SIZE/20;
+                    SDL_RenderFillRect(renderer, &small_tile);
+                    SDL_SetRenderDrawColor(renderer, 255, 255, 150, 255);
+                    small_tile.x = tile.x + randomer(rng, TILE_SIZE) - randomer(rng, TILE_SIZE) + TILE_SIZE/20;
+                    small_tile.y = tile.y + randomer(rng, TILE_SIZE) - randomer(rng, TILE_SIZE) + TILE_SIZE/20;
+                    SDL_RenderFillRect(renderer, &small_tile);
+                    SDL_SetRenderDrawColor(renderer, 255, 255, 150, 255);
+                    small_tile.x = tile.x + randomer(rng, TILE_SIZE) - randomer(rng, TILE_SIZE) + TILE_SIZE/20;
+                    small_tile.y = tile.y + randomer(rng, TILE_SIZE) - randomer(rng, TILE_SIZE) + TILE_SIZE/20;
+                    SDL_RenderFillRect(renderer, &small_tile);
+                    SDL_SetRenderDrawColor(renderer, 255, 255, 150, 255);
+                    small_tile.x = tile.x + randomer(rng, TILE_SIZE) - randomer(rng, TILE_SIZE) + TILE_SIZE/20;
+                    small_tile.y = tile.y + randomer(rng, TILE_SIZE) - randomer(rng, TILE_SIZE) + TILE_SIZE/20;
+                    SDL_RenderFillRect(renderer, &small_tile);
+                    SDL_SetRenderDrawColor(renderer, 255, 255, 150, 255);
+                    small_tile.x = tile.x + randomer(rng, TILE_SIZE) - randomer(rng, TILE_SIZE) + TILE_SIZE/20;
+                    small_tile.y = tile.y + randomer(rng, TILE_SIZE) - randomer(rng, TILE_SIZE) + TILE_SIZE/20;
+                    SDL_RenderFillRect(renderer, &small_tile);
+                    SDL_SetRenderDrawColor(renderer, 255, 255, 150, 255);
+                    small_tile.x = tile.x + randomer(rng, TILE_SIZE) - randomer(rng, TILE_SIZE) + TILE_SIZE/20;
+                    small_tile.y = tile.y + randomer(rng, TILE_SIZE) - randomer(rng, TILE_SIZE) + TILE_SIZE/20;
+                    SDL_RenderFillRect(renderer, &small_tile);
+                    SDL_SetRenderDrawColor(renderer, 255, 255, 150, 255);
+                    small_tile.x = tile.x + randomer(rng, TILE_SIZE) - randomer(rng, TILE_SIZE) + TILE_SIZE/20;
+                    small_tile.y = tile.y + randomer(rng, TILE_SIZE) - randomer(rng, TILE_SIZE) + TILE_SIZE/20;
+                    SDL_RenderFillRect(renderer, &small_tile);
+                    SDL_SetRenderDrawColor(renderer, 255, 255, 150, 255);
+                    small_tile.x = tile.x + randomer(rng, TILE_SIZE) - randomer(rng, TILE_SIZE) + TILE_SIZE/20;
+                    small_tile.y = tile.y + randomer(rng, TILE_SIZE) - randomer(rng, TILE_SIZE) + TILE_SIZE/20;
+                    SDL_RenderFillRect(renderer, &small_tile);
+                    SDL_SetRenderDrawColor(renderer, 255, 255, 150, 255);
+                    small_tile.x = tile.x + randomer(rng, TILE_SIZE) - randomer(rng, TILE_SIZE) + TILE_SIZE/20;
+                    small_tile.y = tile.y + randomer(rng, TILE_SIZE) - randomer(rng, TILE_SIZE) + TILE_SIZE/20;
+                    SDL_RenderFillRect(renderer, &small_tile);
                 } 
                 if (armag_mod == true and gena > 0)
                 {
@@ -1179,13 +1362,6 @@ int main()
                         pos->dead = 1;
                         pos->fire = 1;
                     }
-                }
-                if (lighting_mod == true and int(float(light_y - world[player_n].get_y())/float(light_x - world[player_n].get_x())) == int(float(pos->get_y() - world[player_n].get_y())/float(pos->get_x() - world[player_n].get_x())) and (abs(pos->get_y()-light_y) < abs(world[player_n].get_y()-light_y) or abs(pos->get_x()-light_x) < abs(world[player_n].get_x()-light_x)))
-                {
-                    pos->fire = 1;
-                    SDL_SetRenderDrawColor(renderer, 255, 200, 50, 255);
-                    for (int i = 0; i < TILE_SIZE; i++)
-                        SDL_RenderDrawPoint(renderer, tile.x + randomer(rng, TILE_SIZE) - randomer(rng, TILE_SIZE), tile.y + randomer(rng, TILE_SIZE) - randomer(rng, TILE_SIZE));
                 }
             }
             k += 1;
@@ -1206,23 +1382,41 @@ int main()
                 {
                     if (event.type == SDL_KEYDOWN)
                     {
-                        key = event.key.keysym.sym;
-                        if (key == SDLK_m)
+                        switch(event.key.keysym.sym)
                         {
-                            map_mod = false;
-                            break;
+                            case SDLK_m:
+                                map_mod = false;
+                                politik_mod = false;
+                                break;
+                            case SDLK_p:
+                                politik_mod = not politik_mod;
+                                break;
+                            case SDLK_ESCAPE:
+                                map_mod = false;
+                                quit = true;
+                                break;
                         }
                     }
                 }
                 for (it = world.begin(); it != world.end(); ++it)
                 {
-                    SDL_SetRenderDrawColor(renderer, it->R, it->G, it->B, 255);   
-                    SDL_RenderDrawPoint(renderer, it->get_x()/2, it->get_y()/2);
+                    pixel_tile.x = it->get_x()/2;
+                    pixel_tile.y = it->get_y()/2;
+                    SDL_SetRenderDrawColor(renderer, it->R, it->G, it->B, 255); 
+                    SDL_RenderDrawPoint(renderer, pixel_tile.x, pixel_tile.y);
+                    if (politik_mod == true)
+                    {
+                        switch(it->control)
+                        {
+                            case krigan:
+                                SDL_RenderCopy(renderer, red_zone_texture, NULL, &pixel_tile);
+                                break;
+                            case erafia:
+                                SDL_RenderCopy(renderer, green_zone_texture, NULL, &pixel_tile);
+                                break;
+                        }
+                    }
                 }
-                if (suck_mod == true)
-                    SDL_RenderCopy(renderer, info_suck_text, NULL, &info_suck_rect);
-                else
-                    SDL_RenderCopy(renderer, info_suck_off_text, NULL, &info_suck_rect);
                 text = "x: " + to_string(world[player_n].get_x()) + " y: " + to_string(world[player_n].get_y());
                 info3 = TTF_RenderText_Solid(font, text.c_str(), {0,0,0});
                 info3_text = SDL_CreateTextureFromSurface(renderer, info3);
@@ -1265,9 +1459,6 @@ int main()
         }
 
         objects_buff.clear();
-
-        SDL_Delay(time_left());
-        next_time += TICK_INTERVAL;
     }
 
     SDL_DestroyRenderer(renderer);
